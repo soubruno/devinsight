@@ -35,4 +35,16 @@ function saveEvolution(data) {
     });
 }
 
-module.exports = { initDatabase, saveEvolution };
+function getHistory(fileName, limit = 5) {
+    return new Promise((resolve, reject) => {
+        db.find({ fileName })
+          .sort({ timestamp: -1 })
+          .limit(limit)
+          .exec((err, docs) => {
+              if (err) reject(err);
+              else resolve(docs);
+          });
+    });
+}
+
+module.exports = { initDatabase, saveEvolution, getHistory };
