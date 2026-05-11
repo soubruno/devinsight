@@ -3,26 +3,43 @@ const vscode = require('vscode');
 class DevInsightSidebarProvider {
     constructor(extensionUri) {
         this._extensionUri = extensionUri;
+        this._onMessageCallbacks = [];
     }
 
     resolveWebviewView(webviewView) {
         this._view = webviewView;
-
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._extensionUri]
         };
 
         webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+
+        webviewView.webview.onDidReceiveMessage(data => {
+            this._onMessageCallbacks.forEach(cb => cb(data));
+        });
+    }
+
+    onDidReceiveMessage(callback) {
+        this._onMessageCallbacks.push(callback);
     }
 
     updateSidebar(metrics, history, aiAdvice) {
         if (this._view) {
             this._view.webview.postMessage({
                 type: 'update',
-                metrics: metrics,
-                history: history,
-                aiAdvice: aiAdvice
+                metrics,
+                aiAdvice
+            });
+        }
+    }
+
+    postDiff(previous, current) {
+        if (this._view) {
+            this._view.webview.postMessage({
+                type: 'displayHistoryDiff',
+                previous,
+                current
             });
         }
     }
@@ -34,66 +51,142 @@ class DevInsightSidebarProvider {
             <head>
                 <meta charset="UTF-8">
                 <style>
-                    body { font-family: sans-serif; padding: 10px; color: var(--vscode-foreground); }
-                    .card { background: var(--vscode-sideBar-background); border: 1px solid var(--vscode-widget-border); padding: 10px; margin-bottom: 10px; border-radius: 4px; }
-                    .metric-title { font-size: 0.8em; opacity: 0.8; }
-                    .metric-value { font-size: 1.5em; font-weight: bold; margin: 5px 0; }
-                    .status-good { color: #4caf50; }
-                    .status-warn { color: #f44336; }
-                    .ai-card { 
-                        background: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%); 
+                    body { 
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                        padding: 0; 
+                        margin: 0;
+                        background-color: #252526; 
                         color: white; 
-                        padding: 12px; 
-                        border-radius: 4px; 
-                        margin-top: 15px; 
-                        font-style: italic; 
-                        font-size: 0.9em; 
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+                    }
+                    
+                    header {
+                        background-color: #1e1e1e;
+                        padding: 20px 10px;
+                        text-align: center;
+                    }
+
+                    h3 { margin: 0; font-size: 1.1em; font-weight: bold; }
+
+                    .metrics-row {
+                        display: flex;
+                        gap: 10px;
+                        padding: 15px 10px;
+                        background-color: #1e1e1e;
+                    }
+
+                    .card {
+                        flex: 1;
+                        background: #2d2d2d;
+                        border: 2px solid #ffffff;
+                        padding: 8px;
+                        text-align: center;
+                    }
+
+                    .metric-title { font-size: 0.85em; font-weight: bold; margin-bottom: 5px; }
+                    .metric-value { font-size: 1.4em; font-weight: bold; }
+
+                    .mentor-section {
+                        padding: 20px;
+                        background-color: #333333;
+                    }
+
+                    .mentor-title { font-weight: bold; font-size: 1em; margin-bottom: 10px; display: block; }
+                    .mentor-text { font-size: 0.95em; line-height: 1.5; opacity: 0.9; }
+
+                    .actions {
+                        display: flex;
+                        justify-content: center;
+                        padding: 20px;
+                        background-color: #252526;
+                    }
+
+                    .btn-history {
+                        background-color: #4b6fff;
+                        color: white;
+                        border: none;
+                        padding: 10px 20px;
+                        font-weight: bold;
+                        font-size: 0.9em;
+                        cursor: pointer;
+                    }
+
+                    .btn-history:hover { background-color: #3a5ccc; }
+
+                    .diff-container { padding: 15px; display: none; background: #1e1e1e; }
+                    pre {
+                        background: #000;
+                        color: #00ff00;
+                        padding: 10px;
+                        font-size: 0.8em;
+                        overflow-x: auto;
+                        white-space: pre-wrap;
+                        border: 1px solid #444;
                     }
                 </style>
             </head>
             <body>
-                <h3>Resumo de Evolução</h3>
-                <div id="metrics-container">
-                    <p>Salve um ficheiro JS para ver a análise...</p>
+                <header>
+                    <h3>Resumo da Evolução</h3>
+                </header>
+
+                <div class="metrics-row" id="metrics-row">
+                    <div class="card">
+                        <div class="metric-title">Funções:</div>
+                        <div class="metric-value" id="func-val">-</div>
+                    </div>
+                    <div class="card">
+                        <div class="metric-title">Var:</div>
+                        <div class="metric-value" id="var-val">-</div>
+                    </div>
                 </div>
 
-                <div id="ai-container"></div>
+                <div class="mentor-section">
+                    <span class="mentor-title">Mentor:</span>
+                    <div class="mentor-text" id="ai-text">Salve um arquivo para iniciar a análise...</div>
+                </div>
+
+                <div class="actions">
+                    <button class="btn-history" id="btn-diff">O que mudou:</button>
+                </div>
+
+                <div id="diff-section" class="diff-container">
+                    <div id="diff-content"></div>
+                </div>
 
                 <script>
                     const vscode = acquireVsCodeApi();
-                    window.addEventListener('message', event => {
-                        // Sincronização Total: metrics, history e aiAdvice
-                        const { metrics, history, aiAdvice } = event.data;
-                        
-                        const container = document.getElementById('metrics-container');
-                        const aiContainer = document.getElementById('ai-container');
-                        
-                        // Renderização das métricas
-                        container.innerHTML = \`
-                            <div class="card">
-                                <div class="metric-title">Funções Totais</div>
-                                <div class="metric-value">\${metrics.functionCount}</div>
-                            </div>
-                            <div class="card">
-                                <div class="metric-title">Uso de 'var'</div>
-                                <div class="metric-value \${metrics.varCount > 0 ? 'status-warn' : 'status-good'}">\${metrics.varCount}</div>
-                            </div>
-                            <div class="card">
-                                <div class="metric-title">Linhas de Código</div>
-                                <div class="metric-value">\${metrics.lineCount}</div>
-                            </div>
-                        \`;
+                    let currentFile = "";
 
-                        // Renderização da IA usando o nome correto: aiAdvice
-                        if (aiAdvice && aiContainer) {
-                            aiContainer.innerHTML = \`
-                                <div class="ai-card">
-                                    <strong>Dica do Mentor:</strong><br>
-                                    "\${aiAdvice}"
-                                </div>
+                    function escapeHtml(unsafe) {
+                        return unsafe.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    }
+
+                    window.addEventListener('message', event => {
+                        const data = event.data;
+
+                        if (data.type === 'update') {
+                            const { metrics, aiAdvice } = data;
+                            currentFile = metrics.fileName;
+                            
+                            document.getElementById('func-val').innerText = metrics.functionCount;
+                            document.getElementById('var-val').innerText = metrics.varCount;
+                            document.getElementById('ai-text').innerText = aiAdvice || "Analisando...";
+                        }
+
+                        if (data.type === 'displayHistoryDiff') {
+                            const section = document.getElementById('diff-section');
+                            section.style.display = 'block';
+                            document.getElementById('diff-content').innerHTML = \`
+                                <p style="font-size:0.8em; color:#aaa;">Versão Anterior:</p>
+                                <pre>\${escapeHtml(data.previous.sourceCode)}</pre>
+                                <p style="font-size:0.8em; color:#aaa; margin-top:10px;">Versão Atual:</p>
+                                <pre>\${escapeHtml(data.current.sourceCode)}</pre>
                             \`;
                         }
+                    });
+
+                    document.getElementById('btn-diff').addEventListener('click', () => {
+                        if(currentFile) vscode.postMessage({ type: 'showDiff', fileName: currentFile });
                     });
                 </script>
             </body>
