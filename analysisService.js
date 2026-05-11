@@ -12,8 +12,8 @@ function analyzePatterns(history) {
     const previous = history[1];
 
     return {
-        varTrend: last.varCount - previous.varCount,
-        functionTrend: last.functionCount - previous.functionCount,
+        varTrend: (last.varCount ?? 0) - (previous.varCount ?? 0),
+        functionTrend: (last.functionCount ?? 0) - (previous.functionCount ?? 0),
         lastVarCount: last.varCount,
         previousVarCount: previous.varCount
     };
