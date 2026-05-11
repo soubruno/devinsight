@@ -20,7 +20,7 @@
         {
           "id": "devinsight-sidebar-container",
           "title": "DevInsight",
-          "icon": "$(graph)"
+          "icon": "$(eye)"
         }
       ]
     },
@@ -48,6 +48,8 @@
     "eslint": "^9.39.3"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.3",
+    "@babel/traverse": "^7.29.0",
     "@seald-io/nedb": "^4.1.2",
     "dotenv": "^17.4.2",
     "node-fetch": "^2.7.0"
